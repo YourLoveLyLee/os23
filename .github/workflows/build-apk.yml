@@ -1,10 +1,11 @@
-name: Build VictorianOS APK
+name: Build VictorianOS v0.02 APK
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build VictorianOS Command Core
     runs-on: ubuntu-latest
 
     steps:
@@ -22,116 +23,96 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Check project files
+      - name: Verify source archive
         run: |
           echo "Repository contents:"
           ls -lah
 
-          if [ ! -f "VictorianOS_v0_01_fixed.zip" ]; then
-            echo "ERROR: VictorianOS_v0_01_fixed.zip was not found."
+          if [ ! -f "VictorianOS_v0_02_CommandCore.zip" ]; then
+            echo ""
+            echo "ERROR: VictorianOS_v0_02_CommandCore.zip was not found."
+            echo "Upload the v0.02 ZIP to the root of the repository."
             exit 1
           fi
 
-      - name: Extract VictorianOS
+      - name: Extract VictorianOS v0.02
         run: |
           rm -rf VictorianOS
           mkdir -p VictorianOS
-          unzip -o VictorianOS_v0_01_fixed.zip -d VictorianOS
 
-          echo "Extracted project:"
-          find VictorianOS -maxdepth 3 -type f | head -50
+          unzip -o VictorianOS_v0_02_CommandCore.zip -d VictorianOS
 
-      - name: Configure Java 17
-        working-directory: VictorianOS/VictorianOS_v0_01/shell
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("app/build.gradle.kts")
-
-          if not path.exists():
-              raise SystemExit(
-                  "ERROR: app/build.gradle.kts not found. "
-                  "The ZIP structure is not what the workflow expected."
-              )
-
-          text = path.read_text()
-
-          # Remove an old compileOptions block if one already exists,
-          # so repeated builds don't create duplicates.
-          text = re.sub(
-              r'\n\s*compileOptions\s*\{.*?\n\s*\}',
-              '',
-              text,
-              flags=re.DOTALL
-          )
-
-          compile_options = """
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-          """
-
-          text = text.replace(
-              "android {",
-              "android {" + compile_options,
-              1
-          )
-
-          path.write_text(text)
-
-          print("Updated app/build.gradle.kts:")
-          print(path.read_text())
-          PY
+          echo ""
+          echo "Extracted source tree:"
+          find VictorianOS -maxdepth 4 -type f | head -80
 
       - name: Verify Android project
-        working-directory: VictorianOS/VictorianOS_v0_01/shell
         run: |
-          echo "Current directory:"
-          pwd
+          PROJECT="VictorianOS/VictorianOS_v0_01/shell"
 
-          echo
-          echo "Project contents:"
-          ls -lah
+          if [ ! -f "$PROJECT/settings.gradle.kts" ]; then
+            echo "ERROR: settings.gradle.kts not found."
+            exit 1
+          fi
 
-          echo
-          echo "App contents:"
-          ls -lah app
+          if [ ! -f "$PROJECT/app/build.gradle.kts" ]; then
+            echo "ERROR: app/build.gradle.kts not found."
+            exit 1
+          fi
 
-          echo
-          echo "Java version:"
+          if [ ! -f "$PROJECT/app/src/main/AndroidManifest.xml" ]; then
+            echo "ERROR: AndroidManifest.xml not found."
+            exit 1
+          fi
+
+          echo "VictorianOS Android project found successfully."
+
+      - name: Show build environment
+        run: |
+          echo "Java:"
           java -version
 
-          echo
-          echo "Gradle version:"
+          echo ""
+          echo "Gradle:"
           gradle --version
 
-      - name: Build VictorianOS APK
+      - name: Build VictorianOS v0.02
         working-directory: VictorianOS/VictorianOS_v0_01/shell
         run: |
           gradle assembleDebug \
             --stacktrace \
             --no-daemon
 
-      - name: Verify APK
+      - name: Verify generated APK
         run: |
           APK="VictorianOS/VictorianOS_v0_01/shell/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
             echo "ERROR: APK was not generated."
+            echo ""
+            echo "Searching for APK files:"
             find VictorianOS -type f -name "*.apk" -print
             exit 1
           fi
 
-          echo "APK successfully built:"
+          echo ""
+          echo "VictorianOS v0.02 built successfully:"
           ls -lh "$APK"
+
+      - name: Rename APK
+        run: |
+          mkdir -p output
+
+          cp \
+            VictorianOS/VictorianOS_v0_01/shell/app/build/outputs/apk/debug/app-debug.apk \
+            output/VictorianOS-v0.02-CommandCore-debug.apk
+
+          ls -lh output/
 
       - name: Upload VictorianOS APK
         uses: actions/upload-artifact@v4
         with:
-          name: VictorianOS-v0.01.1-APK
-          path: VictorianOS/VictorianOS_v0_01/shell/app/build/outputs/apk/debug/app-debug.apk
+          name: VictorianOS-v0.02-CommandCore
+          path: output/VictorianOS-v0.02-CommandCore-debug.apk
           if-no-files-found: error
           retention-days: 14

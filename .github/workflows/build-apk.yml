@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -22,10 +22,26 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Unzip VictorianOS
-        run: unzip -o VictorianOS_v0_01.zip -d VictorianOS
+      - name: Check project files
+        run: |
+          echo "Repository contents:"
+          ls -lah
 
-      - name: Fix JVM target
+          if [ ! -f "VictorianOS_v0_01_fixed.zip" ]; then
+            echo "ERROR: VictorianOS_v0_01_fixed.zip was not found."
+            exit 1
+          fi
+
+      - name: Extract VictorianOS
+        run: |
+          rm -rf VictorianOS
+          mkdir -p VictorianOS
+          unzip -o VictorianOS_v0_01_fixed.zip -d VictorianOS
+
+          echo "Extracted project:"
+          find VictorianOS -maxdepth 3 -type f | head -50
+
+      - name: Configure Java 17
         working-directory: VictorianOS/VictorianOS_v0_01/shell
         run: |
           python3 - <<'PY'
@@ -33,42 +49,92 @@ jobs:
           import re
 
           path = Path("app/build.gradle.kts")
+
+          if not path.exists():
+              raise SystemExit(
+                  "ERROR: app/build.gradle.kts not found. "
+                  "The ZIP structure is not what the workflow expected."
+              )
+
           text = path.read_text()
 
+          # Remove an old compileOptions block if one already exists,
+          # so repeated builds don't create duplicates.
           text = re.sub(
-              r"sourceCompatibility\s*=\s*JavaVersion\.[A-Za-z0-9_]+",
-              "sourceCompatibility = JavaVersion.VERSION_17",
+              r'\n\s*compileOptions\s*\{.*?\n\s*\}',
+              '',
               text,
+              flags=re.DOTALL
           )
 
-          text = re.sub(
-              r"targetCompatibility\s*=\s*JavaVersion\.[A-Za-z0-9_]+",
-              "targetCompatibility = JavaVersion.VERSION_17",
-              text,
-          )
-
-          if "compileOptions {" not in text:
-              text = text.replace(
-                  "android {",
-                  """android {
+          compile_options = """
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
-          """,
-                  1,
-              )
+          """
+
+          text = text.replace(
+              "android {",
+              "android {" + compile_options,
+              1
+          )
 
           path.write_text(text)
-          print("Java JVM target set to 17.")
+
+          print("Updated app/build.gradle.kts:")
+          print(path.read_text())
           PY
 
-      - name: Fix BatteryManager startup crash
+      - name: Verify Android project
         working-directory: VictorianOS/VictorianOS_v0_01/shell
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+          echo "Current directory:"
+          pwd
+
+          echo
+          echo "Project contents:"
+          ls -lah
+
+          echo
+          echo "App contents:"
+          ls -lah app
+
+          echo
+          echo "Java version:"
+          java -version
+
+          echo
+          echo "Gradle version:"
+          gradle --version
+
+      - name: Build VictorianOS APK
+        working-directory: VictorianOS/VictorianOS_v0_01/shell
+        run: |
+          gradle assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+      - name: Verify APK
+        run: |
+          APK="VictorianOS/VictorianOS_v0_01/shell/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            find VictorianOS -type f -name "*.apk" -print
+            exit 1
+          fi
+
+          echo "APK successfully built:"
+          ls -lh "$APK"
+
+      - name: Upload VictorianOS APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VictorianOS-v0.01.1-APK
+          path: VictorianOS/VictorianOS_v0_01/shell/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14          import re
 
           root = Path("app/src/main/java/com/lee/victorianos/shell")
           patched = 0

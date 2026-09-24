@@ -12,7 +12,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -24,6 +24,29 @@ jobs:
 
       - name: Unzip VictorianOS
         run: unzip VictorianOS_v0_01.zip -d VictorianOS
+
+      - name: Fix JVM target
+        working-directory: VictorianOS/VictorianOS_v0_01/shell
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("app/build.gradle.kts")
+          s = p.read_text()
+
+          s = s.replace(
+              "android {",
+              """android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              """,
+              1
+          )
+
+          p.write_text(s)
+          PY
 
       - name: Build APK
         working-directory: VictorianOS/VictorianOS_v0_01/shell

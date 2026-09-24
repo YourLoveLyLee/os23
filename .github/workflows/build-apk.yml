@@ -23,18 +23,100 @@ jobs:
           gradle-version: "8.9"
 
       - name: Unzip VictorianOS
-        run: unzip VictorianOS_v0_01.zip -d VictorianOS
+        run: |
+          unzip VictorianOS_v0_01.zip -d VictorianOS
 
       - name: Fix JVM target
         working-directory: VictorianOS/VictorianOS_v0_01/shell
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
-          p = Path("app/build.gradle.kts")
-          s = p.read_text()
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
 
-          s = s.replace(
+          # Replace existing Java compatibility values if present.
+          text = re.sub(
+              r"sourceCompatibility\s*=\s*JavaVersion\.[A-Za-z0-9_]+",
+              "sourceCompatibility = JavaVersion.VERSION_17",
+              text
+          )
+
+          text = re.sub(
+              r"targetCompatibility\s*=\s*JavaVersion\.[A-Za-z0-9_]+",
+              "targetCompatibility = JavaVersion.VERSION_17",
+              text
+          )
+
+          # Add compileOptions if the project doesn't already have them.
+          if "compileOptions {" not in text:
+              text = text.replace(
+                  "android {",
+                  """android {
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              """,
+                  1
+              )
+
+          path.write_text(text)
+
+          print("Java JVM target set to 17.")
+          PY
+
+      - name: Fix BatteryManager startup crash
+        working-directory: VictorianOS/VictorianOS_v0_01/shell
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path(
+              "app/src/main/java/com/lee/victorianos/shell"
+          )
+
+          patched = 0
+
+          for path in root.rglob("*.kt"):
+              text = path.read_text()
+              original = text
+
+              # Prevent crashes when Android returns null for BatteryManager.
+              text = re.sub(
+                  r'getSystemService\(\s*Context\.BATTERY_SERVICE\s*\)\s+as\s+BatteryManager',
+                  'getSystemService(Context.BATTERY_SERVICE) as? BatteryManager ?: return',
+                  text
+              )
+
+              text = re.sub(
+                  r'getSystemService\(\s*BATTERY_SERVICE\s*\)\s+as\s+BatteryManager',
+                  'getSystemService(BATTERY_SERVICE) as? BatteryManager ?: return',
+                  text
+              )
+
+              if text != original:
+                  path.write_text(text)
+                  patched += 1
+                  print(f"Patched BatteryManager in: {path}")
+
+          print(f"BatteryManager patch applied to {patched} file(s).")
+          PY
+
+      - name: Build APK
+        working-directory: VictorianOS/VictorianOS_v0_01/shell
+        run: |
+          gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VictorianOS-APK
+          path: VictorianOS/VictorianOS_v0_01/shell/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error          s = s.replace(
               "android {",
               """android {
               compileOptions {
